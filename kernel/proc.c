@@ -132,6 +132,16 @@ found:
 
   p->priority = 60; // prioridad por defecto usada en PBS
 
+  p->max_mem = 512 * 1024;   // ejemplo: limite por proceso = 512 KB
+#ifdef PBS
+if(p->priority < 40)
+    p->max_mem = 512 * 1024;   // mas prioridad = mas memoria
+else if(p->priority < 60)
+    p->max_mem = 256 * 1024;
+else
+    p->max_mem = 128 * 1024;
+#endif
+
   // Reservar la trapframe para syscalls y traps
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p); // si falla memoria se limpia el proceso
@@ -253,6 +263,7 @@ userinit(void)
 }
 
 // Maneja sbrk: crecer o reducir memoria del usuario
+
 int
 growproc(int n)
 {
@@ -260,10 +271,24 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
+
+  // Validar limite de memoria
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0)
+    uint64 new_sz = sz + n;
+
+    // Si excede el limite -> fallo
+    if(new_sz > p->max_mem){
+      printf("Proceso %d excedio su limite de memoria (%d bytes)\n",
+             p->pid, p->max_mem);
       return -1;
-  } else if(n < 0){
+    }
+
+    // Intentar asignar paginas
+    if((sz = uvmalloc(p->pagetable, sz, new_sz)) == 0){
+      return -1;
+    }
+  }
+  else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
 
