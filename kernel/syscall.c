@@ -226,3 +226,13 @@ syscall(void)
     p->trapframe->a0 = -1;
   }
 }
+
+uint64
+sys_setmemlimit(void)
+{
+    int lim;
+    argint(0, &lim);
+    struct proc *p = myproc();
+    p->max_mem = lim;
+    return 0;
+}

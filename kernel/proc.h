@@ -117,6 +117,8 @@ struct proc {
   uint64 n_runs;               // Number of times the process ran
   uint64 priority;             // Priority of the Process;
 
+
+  //Para mejorar asignacion dinamica de memoria
   uint64 max_mem;   // limite de memoria permitido
   uint64 curr_mem;  // memoria actual, igual a sz
 };
