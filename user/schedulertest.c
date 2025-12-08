@@ -3,7 +3,7 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-#define NFORK 20
+#define NFORK 10
 #define IO 5
 
 // Importante: usar NPROC (max procesos en xv6, usualmente 64)

@@ -132,15 +132,17 @@ found:
 
   p->priority = 60; // prioridad por defecto usada en PBS
 
-  p->max_mem = 512 * 1024;   // ejemplo: limite por proceso = 512 KB
-#ifdef PBS
-if(p->priority < 40)
+ // p->max_mem = 512 * 1024;   // ejemplo: limite por proceso = 512 KB
+ 
+  //para PBS
+  if(p->priority < 40)
     p->max_mem = 512 * 1024;   // mas prioridad = mas memoria
-else if(p->priority < 60)
+  else if(p->priority < 60)
     p->max_mem = 256 * 1024;
-else
+  else
     p->max_mem = 128 * 1024;
-#endif
+
+
 
   // Reservar la trapframe para syscalls y traps
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -466,89 +468,98 @@ int min(int a, int b){
   return b;
 }
 
-// Scheduler PBS
 void
 scheduler(void)
 {
-#ifdef PBS
+    struct proc *p;
+    struct cpu *c = mycpu();
+    c->proc = 0;
 
-  struct proc *p;
-  struct cpu *c = mycpu();
-  c->proc = 0;
+    for(;;){
+        intr_on(); // permitir interrupciones
 
-  for(;;){
-    intr_on(); // habilitar interrupciones
+        struct proc *best = 0;
+        int best_dp = 999999;   // prioridad dinamica minima (mejor proceso)
 
-    struct proc* high_priority_proc = 0;
-    int dynamic_priority = 101;
+        // =====================================================
+        //         SELECCIONAR EL MEJOR PROCESO RUNNABLE
+        // =====================================================
+        for(p = proc; p < &proc[NPROC]; p++){
+            acquire(&p->lock);
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
+            if(p->state != RUNNABLE){
+                release(&p->lock);
+                continue;
+            }
 
-      int nice;
-      // Calculo del valor nice: relacion entre tiempo dormido y tiempo de ejecucion
-      if(p->run_time + p->sleep_time > 0){
-        nice = p->sleep_time * 10;
-        nice = nice / (p->sleep_time + p->run_time);
-      }
-      else{
-        nice = 5;
-      }
+            // ----------------------------
+            // Calcular valor nice
+            // ----------------------------
+            int nice;
+            if(p->run_time + p->sleep_time > 0)
+                nice = (p->sleep_time * 10) / (p->run_time + p->sleep_time);
+            else
+                nice = 5;  // valor por defecto
 
-      // Calcular prioridad dinamica PBS
-      int curr_dynamic_priority =
-          max(0, min(p->priority - nice + 5, 100));
+            // ----------------------------
+            // Calcular prioridad dinamica
+            // dp = static - nice + 5
+            // ----------------------------
+            int dp = p->priority - nice + 5;
+            if(dp < 0) dp = 0;
+            if(dp > 100) dp = 100;
 
-      if(p->state == RUNNABLE){
+            // -----------------------------------------------------
+            //                LOGICA DE SELECCION
+            // -----------------------------------------------------
+            int elegir = 0;
 
-        int dp_check = 
-            (dynamic_priority == curr_dynamic_priority);
+            // 1) Mejor prioridad dinamica
+            if(dp < best_dp) {
+                elegir = 1;
+            }
 
-        int check_1 = 
-            dp_check && p->n_runs < high_priority_proc->n_runs;
+            // 2) Empate en prioridad -> menos veces ejecutado
+            else if(dp == best_dp && best && p->n_runs < best->n_runs) {
+                elegir = 1;
+            }
 
-        int check_2 =
-            dp_check &&
-            high_priority_proc->n_runs == p->n_runs &&
-            p->create_time < high_priority_proc->create_time;
+            // 3) Empate en n_runs -> mas antiguo
+            else if(dp == best_dp && best &&
+                    p->n_runs == best->n_runs &&
+                    p->create_time < best->create_time) {
+                elegir = 1;
+            }
 
-        if(high_priority_proc == 0 ||
-           curr_dynamic_priority > dynamic_priority ||
-           check_1 ||
-           check_2){
+            if(elegir){
+                if(best != 0)
+                    release(&best->lock); // soltar lock anterior
 
-          if(high_priority_proc != 0)
-            release(&high_priority_proc->lock);
+                best = p;
+                best_dp = dp;
+                continue; 
+            }
 
-          dynamic_priority = curr_dynamic_priority;
-          high_priority_proc = p;
-
-          continue;
+            release(&p->lock);
         }
-      }
-      
-      release(&p->lock);
+
+        // =====================================================
+        //               EJECUTAR EL PROCESO ELEGIDO
+        if(best != 0){
+            best->state = RUNNING;
+            best->start_time = ticks;
+            best->run_time = 0;       // reset para nice
+            best->sleep_time = 0;     // reset para nice
+            best->n_runs++;
+
+            c->proc = best;
+            swtch(&c->context, &best->context);
+
+            // Cuando vuelve, el proceso ya cambio su estado
+            c->proc = 0;
+            release(&best->lock);
+        }
     }
-
-    if(high_priority_proc != 0){
-
-      high_priority_proc->state = RUNNING;
-      high_priority_proc->start_time = ticks;
-      high_priority_proc->run_time = 0;
-      high_priority_proc->sleep_time = 0;
-      high_priority_proc->n_runs += 1;
-
-      c->proc = high_priority_proc;
-
-      // hacer contexto de cambio
-      swtch(&c->context, &high_priority_proc->context);
-
-      c->proc = 0;
-      release(&high_priority_proc->lock);
-    }
-  }
-
-#endif
 }
 
 // sched: transfiere control al scheduler
